@@ -1,0 +1,421 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<title>구도 카메라</title>
+<meta name="theme-color" content="#000000">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="구도 카메라">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" href="icon-192.png">
+<style>
+:root{--bg:#000;--chip:#262623;--line:#3a3935;--fg:#f2f0ea;--muted:#9c998f;--sel:#c9d6b4;--zoom:#f2b84b;color-scheme:dark}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{height:100%;margin:0;background:var(--bg);color:var(--fg);
+  font-family:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Noto Sans KR",system-ui,sans-serif;font-size:15px;
+  overscroll-behavior:none;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
+button:focus-visible{outline:2px solid var(--sel);outline-offset:2px}
+[hidden]{display:none!important}
+
+#app{height:100dvh;display:grid;grid-template-rows:minmax(0,1fr) auto auto auto;gap:10px;
+  padding:calc(env(safe-area-inset-top,0px) + 6px) max(10px,env(safe-area-inset-right,0px)) calc(env(safe-area-inset-bottom,0px) + 8px) max(10px,env(safe-area-inset-left,0px))}
+#vfwrap{position:relative;display:flex;align-items:center;justify-content:center;min-height:0}
+.vf{position:relative;overflow:hidden;background:#0e0e0d;border-radius:6px}
+video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;transform-origin:center}
+#ov{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+#flash{position:absolute;inset:0;background:#fff;opacity:0;pointer-events:none;transition:opacity .25s}
+.topbar{position:absolute;top:8px;left:8px;right:8px;display:flex;justify-content:space-between}
+.ib{width:40px;height:40px;border-radius:50%;background:rgba(40,40,38,.72);display:grid;place-items:center;font-size:13px}
+.ib[aria-pressed="false"]{opacity:.5}
+.ratio{border:1.5px solid currentColor;border-radius:4px;padding:1px 4px;font-size:10px;font-weight:600}
+.zoom{position:absolute;left:50%;bottom:10px;transform:translateX(-50%);display:flex;gap:6px;align-items:center}
+.zoom button{font-size:13px;font-weight:600;min-width:38px;height:38px;padding:0 8px;border-radius:999px;background:rgba(30,30,28,.72);color:#ddd;position:relative}
+.zoom button.on{color:var(--zoom);background:rgba(10,10,10,.85);min-width:44px;height:44px}
+.zoom button.rec::after{content:"";position:absolute;inset:-3px;border-radius:999px;border:1.5px solid var(--zoom)}
+.sheet{position:absolute;inset:auto 8px 62px 8px;background:rgba(18,18,16,.94);border:1px solid var(--line);border-radius:12px;padding:12px 14px;font-size:14px;line-height:1.5}
+.sheet h3{margin:0 0 4px;font-size:15px}
+.sheet ul{margin:0 0 6px;padding-left:18px}
+.sheet p{margin:0;color:var(--muted);font-size:13px}
+
+.strip{display:flex;gap:8px;overflow-x:auto;scroll-snap-type:x mandatory;scrollbar-width:none;padding:2px}
+.strip::-webkit-scrollbar{display:none}
+.tpl{flex:none;width:70px;scroll-snap-align:center;border:2px solid transparent;border-radius:10px;overflow:hidden;position:relative;background:var(--chip);padding:0}
+.tpl canvas{display:block;width:100%;height:auto}
+.tpl span{position:absolute;left:0;right:0;bottom:3px;text-align:center;font-size:11px;text-shadow:0 1px 3px #000}
+.tpl[aria-pressed="true"]{border-color:var(--sel)}
+.tpl[aria-pressed="true"]::after{content:"";position:absolute;left:50%;top:38%;width:20px;height:10px;border-left:2.5px solid #fff;border-bottom:2.5px solid #fff;transform:translate(-50%,-50%) rotate(-45deg)}
+
+.row{display:flex;justify-content:center;gap:8px}
+.pill{display:flex;align-items:center;gap:2px;border:1px solid var(--line);border-radius:999px;padding:3px 5px}
+.pill b{font-size:13px;padding:0 8px 0 6px;border-right:1px solid var(--line);margin-right:2px}
+.pill button{min-width:30px;height:30px;border-radius:999px;font-size:14px}
+.pill button[aria-pressed="true"]{background:var(--sel);color:#14140f;font-weight:700}
+.pill output{font-size:13px;min-width:42px;text-align:center;font-variant-numeric:tabular-nums}
+
+.shutter{display:grid;grid-template-columns:1fr auto 1fr;align-items:center}
+.thumb{justify-self:start;width:48px;height:48px;border-radius:8px;background:var(--chip) center/cover no-repeat;border:1px solid var(--line)}
+.shot{width:74px;height:74px;border-radius:50%;border:4px solid var(--fg);display:grid;place-items:center}
+.shot span{width:58px;height:58px;border-radius:50%;background:var(--fg);transition:transform .1s}
+.shot:active span{transform:scale(.9)}
+.shot:disabled{opacity:.4}
+.flip{justify-self:end;width:48px;height:48px;border-radius:50%;background:var(--chip);font-size:20px}
+
+/* 시작·안내 화면 */
+.layer{position:fixed;inset:0;z-index:20;background:rgba(0,0,0,.92);display:flex;flex-direction:column;justify-content:center;align-items:center;gap:16px;text-align:center;
+  padding:calc(env(safe-area-inset-top,0px) + 24px) max(24px,env(safe-area-inset-right,0px)) calc(env(safe-area-inset-bottom,0px) + 24px) max(24px,env(safe-area-inset-left,0px))}
+.layer h1{margin:0;font-size:26px}
+.layer p{margin:0;color:var(--muted);max-width:32ch;line-height:1.6}
+.cta{background:var(--fg);color:#111;font-weight:700;border-radius:999px;padding:12px 26px;font-size:16px}
+.ghost{color:var(--muted);text-decoration:underline;font-size:14px}
+.banner{position:fixed;z-index:15;left:max(10px,env(safe-area-inset-left,0px));right:max(10px,env(safe-area-inset-right,0px));top:calc(env(safe-area-inset-top,0px) + 56px);
+  background:rgba(30,30,28,.96);border:1px solid var(--line);border-radius:12px;padding:10px 12px;font-size:13px;display:flex;gap:10px;align-items:center}
+.banner span{flex:1;line-height:1.5}
+
+/* 결과 확인 */
+#review{position:fixed;inset:0;z-index:30;background:#000;display:grid;grid-template-rows:minmax(0,1fr) auto;gap:12px;
+  padding:calc(env(safe-area-inset-top,0px) + 8px) max(10px,env(safe-area-inset-right,0px)) calc(env(safe-area-inset-bottom,0px) + 12px) max(10px,env(safe-area-inset-left,0px))}
+#rvwrap{display:flex;align-items:center;justify-content:center;min-height:0}
+#rv{max-width:100%;max-height:100%}
+.rvbar{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.rvbar button{padding:10px 14px;border-radius:999px;background:var(--chip);font-size:14px}
+.rvbar .save{background:var(--fg);color:#111;font-weight:700}
+@media (prefers-reduced-motion:reduce){#flash{transition:none}}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="vfwrap">
+    <div class="vf" id="vf">
+      <video id="video" playsinline muted autoplay></video>
+      <canvas id="ov"></canvas>
+      <div id="flash"></div>
+      <div class="topbar">
+        <button class="ib" id="gridBtn" type="button" aria-pressed="true" aria-label="격자 켜기·끄기">#</button>
+        <button class="ib" id="ratioBtn" type="button" aria-label="화면 비율 바꾸기"><span class="ratio" id="ratioTxt">4:3</span></button>
+        <button class="ib" id="infoBtn" type="button" aria-pressed="false" aria-label="촬영 요령">i</button>
+      </div>
+      <div class="sheet" id="sheet" hidden></div>
+      <div class="zoom" id="zoom" role="group" aria-label="렌즈 배율"></div>
+    </div>
+  </div>
+
+  <div class="strip" id="strip" role="group" aria-label="구도 틀"></div>
+
+  <div class="row">
+    <div class="pill" role="group" aria-label="예시">
+      <b>예시</b>
+      <button type="button" data-ex="0" aria-label="예시 끄기">✕</button>
+      <button type="button" data-ex="1">1</button>
+      <button type="button" data-ex="2">2</button>
+    </div>
+    <div class="pill" aria-label="예시 투명도">
+      <button type="button" id="opDown" aria-label="투명도 낮추기">−</button>
+      <output id="opVal">50%</output>
+      <button type="button" id="opUp" aria-label="투명도 높이기">+</button>
+    </div>
+  </div>
+
+  <div class="shutter">
+    <button class="thumb" id="thumb" type="button" aria-label="마지막 사진 보기"></button>
+    <button class="shot" id="shot" type="button" aria-label="촬영" disabled><span></span></button>
+    <button class="flip" id="flip" type="button" aria-label="전면·후면 카메라 전환">⟲</button>
+  </div>
+</div>
+
+<div class="layer" id="start">
+  <h1>구도 카메라</h1>
+  <p id="startMsg">구도 틀을 화면에 겹쳐 놓고 찍는 카메라입니다. 카메라 사용을 허용해 주세요.</p>
+  <button class="cta" id="startBtn" type="button">카메라 켜기</button>
+  <label class="ghost" id="fallbackLbl" hidden>사진 찍어서 확인하기<input id="fallback" type="file" accept="image/*" capture="environment" hidden></label>
+</div>
+
+<div class="banner" id="installTip" hidden>
+  <span>Safari 아래쪽 <b>공유 버튼</b>을 누르고 <b>홈 화면에 추가</b>를 고르면 앱처럼 쓸 수 있습니다.</span>
+  <button type="button" id="installClose" aria-label="닫기">✕</button>
+</div>
+
+<div id="review" hidden>
+  <div id="rvwrap"><canvas id="rv"></canvas></div>
+  <div class="rvbar">
+    <button type="button" id="rvBack">다시 찍기</button>
+    <button type="button" id="rvGuide" aria-pressed="true">틀 겹쳐 보기</button>
+    <button type="button" class="save" id="rvSave">사진 저장</button>
+  </div>
+</div>
+
+<script>
+/* ---------- 구도 틀 ---------- */
+const T=[
+  {id:"center",name:"중앙",ratio:"4:3",lens:"2",view:"side",style:"dashed",rect:[.3,.36,.7,.78],marks:[],items:[["mug",.5,.58]],
+   title:"한 가지를 정가운데에",how:["점선 상자 안에 물건 전체가 들어오게 맞춥니다.","좌우 여백을 같게 둡니다."],angle:"정면보다 살짝 위(30도)"},
+  {id:"one",name:"1점",ratio:"4:3",lens:"2",view:"side",style:"solid",marks:[[2/3,1/3]],items:[["tall",2/3,1/3]],
+   title:"주인공을 오른쪽 위 교차점에",how:["잔 입구나 장식을 원 안에 넣습니다.","나머지는 여백으로 둡니다."],angle:"눈높이보다 약간 위"},
+  {id:"two",name:"2점",ratio:"4:3",lens:"tele",view:"side",style:"solid",marks:[[1/3,1/3],[2/3,2/3]],items:[["mug",1/3,1/3],["plate",2/3,2/3]],
+   title:"음료는 뒤 왼쪽, 디저트는 앞 오른쪽",how:["두 원이 대각선을 이루게 둡니다.","뒤로 물러서서 망원으로 찍으면 배경이 정리됩니다."],angle:"45도 사선"},
+  {id:"tri1",name:"삼각 1",ratio:"4:3",lens:"tele",view:"side",style:"dashed",link:true,marks:[[.66,.3],[.3,.66],[.68,.74]],items:[["tall",.66,.3],["plate",.3,.66],["plate",.68,.74]],
+   title:"큰 것 하나 뒤, 작은 것 둘 앞",how:["키 큰 음료를 뒤쪽 꼭짓점에 둡니다.","디저트 두 개를 앞쪽 꼭짓점에 나눠 둡니다."],angle:"45도 사선"},
+  {id:"tri2",name:"삼각 2",ratio:"4:3",lens:"tele",view:"side",style:"dashed",link:true,marks:[[.7,.29],[.27,.61],[.65,.8]],items:[["tall",.7,.29],["tall",.27,.61],["plate",.65,.8]],
+   title:"음료 두 잔과 디저트 하나",how:["음료 두 잔을 앞뒤로 엇갈리게 둡니다.","디저트는 오른쪽 아래 앞으로 당깁니다."],angle:"45도 사선"},
+  {id:"tri3",name:"삼각 3",ratio:"16:9",lens:"2",view:"side",style:"dashed",link:true,marks:[[.54,.41],[.8,.55],[.3,.69]],items:[["tall",.54,.41],["tall",.8,.55],["plate",.3,.69]],
+   title:"세로로 긴 화면에 세 가지",how:["위쪽에 배경(식물, 벽)을 넉넉히 남깁니다.","릴스·스토리용으로 좋습니다."],angle:"테이블보다 조금 높게"},
+  {id:"toptri",name:"탑뷰 삼각",ratio:"4:3",lens:"1",view:"top",style:"dashed",link:true,marks:[[.36,.3],[.7,.42],[.4,.72]],items:[["cupTop",.36,.3],["cupTop",.7,.42],["plateTop",.4,.72]],
+   title:"위에서 본 세 가지",how:["폰을 테이블과 평행하게 듭니다.","잔 두 개와 접시 하나를 꼭짓점에 둡니다."],angle:"바로 위(90도)"},
+  {id:"topfood",name:"탑뷰 접시",ratio:"4:3",lens:"1",view:"top",style:"solid",marks:[[.5,.5,.3]],items:[["plateTop",.5,.5,1.5]],
+   title:"접시 하나를 위에서 가운데에",how:["접시 테두리를 큰 원에 맞춥니다.","소품은 한쪽 모서리에만 둡니다."],angle:"바로 위(90도)"},
+  {id:"land",name:"풍경",ratio:"4:3",lens:"0.5",view:"land",style:"solid",horizon:2/3,marks:[[1/3,2/3,.1]],items:[],
+   title:"하늘 2, 땅 1",how:["수평선을 아래 격자선에 맞춥니다.","기준점을 왼쪽 아래 교차점에 작게 둡니다."],angle:"눈높이, 수평 유지"}
+];
+const RATIOS={"4:3":[3,4],"16:9":[9,16]};
+const PAL=[null,
+  {wall:["#3d322c","#2a221e"],table:"#1b1918",grain:"rgba(255,255,255,.035)",liq:"#6e3417",cake:"#7d8c4c",top:"#b9773a",plate:"#e9e0c8"},
+  {wall:["#d9ccb6","#c4b498"],table:"#a57e55",grain:"rgba(60,30,10,.08)",liq:"#3b2214",cake:"#d39b4b",top:"#f1e3c7",plate:"#f6f3ec"}];
+const LENS_LABEL={"0.5":".5","1":"1x","2":"2x","tele":"망원"};
+
+const $=s=>document.querySelector(s);
+const st={t:3,ratio:"4:3",ex:1,op:.5,grid:true};
+try{const s=JSON.parse(localStorage.getItem("cc")||"{}");Object.assign(st,s);}catch(e){}
+if(!T[st.t]) st.t=3;
+const save=()=>{try{localStorage.setItem("cc",JSON.stringify({t:st.t,ratio:st.ratio,ex:st.ex,op:st.op,grid:st.grid}));}catch(e){}};
+
+/* ---------- 예시 그림 ---------- */
+function rr(c,x,y,w,h,r){c.beginPath();c.roundRect?c.roundRect(x,y,w,h,r):c.rect(x,y,w,h);}
+function scene(c,W,H,tpl,v){
+  const p=PAL[v];
+  if(tpl.view==="land"){
+    const g=c.createLinearGradient(0,0,0,H*tpl.horizon);
+    if(v===1){g.addColorStop(0,"#26375a");g.addColorStop(1,"#d88a5a");}else{g.addColorStop(0,"#7fb4e0");g.addColorStop(1,"#dfeef5");}
+    c.fillStyle=g;c.fillRect(0,0,W,H*tpl.horizon);
+    c.fillStyle=v===1?"#3a3346":"#7f9a86";c.beginPath();c.moveTo(0,H*tpl.horizon);c.lineTo(W*.25,H*.55);c.lineTo(W*.45,H*.61);c.lineTo(W*.7,H*.52);c.lineTo(W,H*.6);c.lineTo(W,H*tpl.horizon);c.fill();
+    c.fillStyle=v===1?"#1c2330":"#6f8f4a";c.fillRect(0,H*tpl.horizon,W,H);
+    const x=W/3,y=H*tpl.horizon;c.fillStyle=v===1?"#111":"#2e3b22";
+    c.beginPath();c.arc(x,y-W*.075,W*.018,0,7);c.fill();c.fillRect(x-W*.012,y-W*.058,W*.024,W*.058);return;
+  }
+  if(tpl.view==="top"){
+    c.fillStyle=p.table;c.fillRect(0,0,W,H);
+    c.strokeStyle=p.grain;c.lineWidth=2;for(let y=0;y<H;y+=H/26){c.beginPath();c.moveTo(0,y);c.bezierCurveTo(W*.3,y+6,W*.6,y-6,W,y+3);c.stroke();}
+  }else{
+    const wallH=tpl.ratio==="16:9"?.36:.3;
+    const g=c.createLinearGradient(0,0,0,H*wallH);g.addColorStop(0,p.wall[0]);g.addColorStop(1,p.wall[1]);
+    c.fillStyle=g;c.fillRect(0,0,W,H*wallH);
+    if(tpl.ratio==="16:9"){c.fillStyle=v===1?"#2f4a2c":"#7c9a5e";for(let i=0;i<9;i++){c.beginPath();c.ellipse(W*(.55+i*.06),H*(.12+(i%3)*.05),W*.06,H*.05,i,0,7);c.fill();}}
+    c.fillStyle=p.table;c.beginPath();c.moveTo(0,H*wallH);c.lineTo(W,H*(wallH-.04));c.lineTo(W,H);c.lineTo(0,H);c.fill();
+    c.strokeStyle=p.grain;c.lineWidth=2;for(let y=H*wallH;y<H;y+=H/30){c.beginPath();c.moveTo(0,y);c.lineTo(W,y-H*.03);c.stroke();}
+  }
+  for(const [k,x,y,s] of tpl.items) ITEM[k](c,x*W,y*H,W*(s||1),p);
+}
+const ITEM={
+  tall(c,x,y,W,p){const w=W*.2,h=W*.46,top=y-W*.12;
+    c.fillStyle="rgba(0,0,0,.28)";c.beginPath();c.ellipse(x+w*.15,top+h,w*.7,w*.14,0,0,7);c.fill();
+    c.fillStyle=p.liq;rr(c,x-w/2,top+h*.06,w,h*.94,w*.12);c.fill();
+    c.fillStyle="rgba(255,255,255,.18)";c.fillRect(x-w/2+w*.12,top+h*.1,w*.12,h*.8);
+    c.fillStyle="rgba(255,255,255,.35)";for(let i=0;i<3;i++)c.fillRect(x-w*.35+i*w*.25,top+h*.08+i%2*w*.08,w*.2,w*.16);
+    c.strokeStyle="rgba(255,255,255,.55)";c.lineWidth=2;rr(c,x-w/2,top,w,h,w*.12);c.stroke();
+    c.fillStyle="#111";c.fillRect(x+w*.12,top-W*.12,w*.09,h*.5);},
+  mug(c,x,y,W,p){const w=W*.26,h=W*.24,top=y-h*.45;
+    c.fillStyle="rgba(0,0,0,.25)";c.beginPath();c.ellipse(x,top+h,w*.65,w*.14,0,0,7);c.fill();
+    c.fillStyle=p.liq;rr(c,x-w/2,top+h*.18,w,h*.82,w*.1);c.fill();
+    c.strokeStyle="rgba(255,255,255,.6)";c.lineWidth=2;rr(c,x-w/2,top,w,h,w*.1);c.stroke();
+    c.beginPath();c.arc(x+w/2,top+h*.5,h*.22,-1.2,1.2);c.stroke();},
+  plate(c,x,y,W,p){const rx=W*.22;
+    c.fillStyle="rgba(0,0,0,.28)";c.beginPath();c.ellipse(x+rx*.08,y+W*.07,rx*1.05,rx*.36,0,0,7);c.fill();
+    c.fillStyle=p.plate;c.beginPath();c.ellipse(x,y+W*.05,rx,rx*.34,0,0,7);c.fill();
+    c.fillStyle=p.cake;c.fillRect(x-rx*.55,y-W*.06,rx*1.1,W*.1);
+    c.fillStyle=p.top;c.beginPath();c.ellipse(x,y-W*.06,rx*.55,W*.03,0,0,7);c.fill();},
+  cupTop(c,x,y,W,p){const r=W*.095;
+    c.fillStyle="rgba(0,0,0,.25)";c.beginPath();c.arc(x+r*.15,y+r*.15,r*1.05,0,7);c.fill();
+    c.fillStyle="#f3efe6";c.beginPath();c.arc(x,y,r,0,7);c.fill();
+    c.fillStyle=p.liq;c.beginPath();c.arc(x,y,r*.78,0,7);c.fill();},
+  plateTop(c,x,y,W,p){const r=W*.2;
+    c.fillStyle="rgba(0,0,0,.25)";c.beginPath();c.arc(x+r*.06,y+r*.06,r*1.02,0,7);c.fill();
+    c.fillStyle=p.plate;c.beginPath();c.arc(x,y,r,0,7);c.fill();
+    c.fillStyle=p.top;c.beginPath();c.arc(x,y,r*.5,0,7);c.fill();
+    c.fillStyle=p.cake;for(let i=0;i<6;i++){const a=i*1.05;c.beginPath();c.arc(x+Math.cos(a)*r*.3,y+Math.sin(a)*r*.3,r*.09,0,7);c.fill();}}
+};
+function guides(c,W,H,tpl,lw,grid){
+  c.save();c.shadowColor="rgba(0,0,0,.45)";c.shadowBlur=lw*2;
+  if(grid){c.strokeStyle="rgba(255,255,255,.75)";c.lineWidth=lw*.7;
+    for(const f of[1/3,2/3]){c.beginPath();c.moveTo(W*f,0);c.lineTo(W*f,H);c.moveTo(0,H*f);c.lineTo(W,H*f);c.stroke();}}
+  c.strokeStyle="rgba(255,255,255,.95)";c.lineWidth=lw*1.6;
+  c.setLineDash(tpl.style==="dashed"?[W*.035,W*.022]:[]);
+  if(tpl.link){c.lineWidth=lw*1.4;c.beginPath();tpl.marks.forEach(([x,y],i)=>{i?c.lineTo(x*W,y*H):c.moveTo(x*W,y*H);});c.closePath();c.stroke();c.lineWidth=lw*1.6;}
+  for(const [x,y,r] of tpl.marks){c.beginPath();c.arc(x*W,y*H,(r||.175)*W,0,7);c.stroke();}
+  if(tpl.rect){const[a,b,cx,d]=tpl.rect;c.setLineDash([W*.02,W*.015]);c.strokeRect(a*W,b*H,(cx-a)*W,(d-b)*H);}
+  if(tpl.horizon){c.setLineDash([]);c.strokeStyle="rgba(242,184,75,.95)";c.beginPath();c.moveTo(0,tpl.horizon*H);c.lineTo(W,tpl.horizon*H);c.stroke();}
+  c.restore();
+}
+
+/* ---------- 화면 맞춤과 겹침 그리기 ---------- */
+const vf=$("#vf"),ov=$("#ov"),octx=ov.getContext("2d"),off=document.createElement("canvas"),video=$("#video");
+function fit(){
+  const wrap=$("#vfwrap"),[rw,rh]=RATIOS[st.ratio];
+  const W=wrap.clientWidth,H=wrap.clientHeight;let w=W,h=w*rh/rw;if(h>H){h=H;w=h*rw/rh;}
+  vf.style.width=w+"px";vf.style.height=h+"px";
+  const d=window.devicePixelRatio||1;ov.width=Math.round(w*d);ov.height=Math.round(h*d);return[w,h,d];
+}
+function drawOv(){
+  const tpl=T[st.t],[w,h,d]=fit();
+  octx.setTransform(1,0,0,1,0,0);octx.clearRect(0,0,ov.width,ov.height);
+  if(st.ex){off.width=ov.width;off.height=ov.height;const oc=off.getContext("2d");oc.setTransform(d,0,0,d,0,0);scene(oc,w,h,tpl,st.ex);
+    octx.globalAlpha=stream?st.op:Math.max(st.op,.35);octx.drawImage(off,0,0);octx.globalAlpha=1;}
+  octx.setTransform(d,0,0,d,0,0);guides(octx,w,h,tpl,1.5,st.grid);
+}
+
+/* ---------- 카메라 ---------- */
+let stream=null,facing="environment",lenses={},curLens="1",dz=1;
+function stopCam(){if(stream){stream.getTracks().forEach(t=>t.stop());stream=null;}}
+async function startCam(deviceId){
+  stopCam();
+  const v=deviceId?{deviceId:{exact:deviceId}}:{facingMode:facing};
+  stream=await navigator.mediaDevices.getUserMedia({audio:false,video:{...v,width:{ideal:1920},height:{ideal:1440},aspectRatio:{ideal:4/3}}});
+  video.srcObject=stream;await video.play().catch(()=>{});
+  $("#shot").disabled=false;applyZoom();drawOv();
+}
+async function scanLenses(){
+  lenses={};
+  try{
+    const devs=(await navigator.mediaDevices.enumerateDevices()).filter(d=>d.kind==="videoinput");
+    for(const d of devs){const l=(d.label||"").toLowerCase();
+      if(/front|전면/.test(l))continue;
+      if(/ultra|초광각/.test(l))lenses["0.5"]=d.deviceId;
+      else if(/tele|망원/.test(l))lenses.tele=d.deviceId;
+      else if(/dual|triple|듀얼|트리플/.test(l)){}
+      else if(/back|후면|rear/.test(l)&&!lenses["1"])lenses["1"]=d.deviceId;}
+  }catch(e){}
+}
+function lensKeys(){
+  if(facing==="user")return["1"];
+  return[lenses["0.5"]&&"0.5","1","2",lenses.tele&&"tele"].filter(Boolean);
+}
+function recLens(){const r=T[st.t].lens,keys=lensKeys();if(keys.includes(r))return r;if(r==="tele")return"2";if(r==="0.5")return"1";return r;}
+function renderZoom(){
+  const z=$("#zoom");z.innerHTML="";const rec=recLens();
+  for(const k of lensKeys()){const b=document.createElement("button");b.type="button";b.textContent=LENS_LABEL[k];
+    b.className=(k===curLens?"on ":"")+(k===rec?"rec":"");b.setAttribute("aria-label",(LENS_LABEL[k])+(k===rec?" (이 구도의 추천 배율)":""));
+    b.onclick=()=>selectLens(k);z.append(b);}
+}
+function applyZoom(){video.style.transform=`scale(${facing==="user"?-dz:dz},${dz})`;}
+async function selectLens(k){
+  if(k===curLens)return;
+  try{
+    if(k==="0.5"||k==="tele"){await startCam(lenses[k]);dz=1;}
+    else{ if(curLens==="0.5"||curLens==="tele")await startCam(lenses["1"]||null); dz=k==="2"?2:1; }
+    curLens=k;applyZoom();renderZoom();
+  }catch(e){showStart("이 렌즈를 열 수 없습니다. 1x로 돌아갑니다.");curLens="1";dz=1;}
+}
+
+/* ---------- 촬영과 저장 ---------- */
+let shot=null;
+function capture(){
+  const vw=video.videoWidth,vh=video.videoHeight;if(!vw)return;
+  const[rw,rh]=RATIOS[st.ratio],a=rw/rh;let cw,ch;
+  if(vw/vh>a){ch=vh;cw=vh*a;}else{cw=vw;ch=vw/a;}
+  cw/=dz;ch/=dz;const sx=(vw-cw)/2,sy=(vh-ch)/2;
+  const c=document.createElement("canvas");c.width=Math.round(cw);c.height=Math.round(ch);
+  const x=c.getContext("2d");if(facing==="user"){x.translate(c.width,0);x.scale(-1,1);}
+  x.drawImage(video,sx,sy,cw,ch,0,0,c.width,c.height);
+  const f=$("#flash");f.style.opacity=.8;setTimeout(()=>f.style.opacity=0,80);
+  c.toBlob(b=>{if(!b)return;if(shot)URL.revokeObjectURL(shot.url);
+    shot={blob:b,url:URL.createObjectURL(b),canvas:c,tpl:st.t};$("#thumb").style.backgroundImage=`url(${shot.url})`;openReview();},"image/jpeg",.92);
+}
+let rvGuide=true;
+function drawReview(){
+  if(!shot)return;const wrap=$("#rvwrap"),c=$("#rv"),src=shot.canvas,tpl=T[shot.tpl];
+  const s=Math.min(wrap.clientWidth/src.width,wrap.clientHeight/src.height),w=src.width*s,h=src.height*s,d=window.devicePixelRatio||1;
+  c.width=Math.round(w*d);c.height=Math.round(h*d);c.style.width=w+"px";c.style.height=h+"px";
+  const x=c.getContext("2d");x.drawImage(src,0,0,c.width,c.height);
+  if(rvGuide){x.setTransform(d,0,0,d,0,0);guides(x,w,h,tpl,1.5,true);}
+}
+function openReview(){$("#review").hidden=false;drawReview();}
+async function saveShot(){
+  if(!shot)return;
+  const t=new Date(),name=`구도_${t.getFullYear()}${String(t.getMonth()+1).padStart(2,"0")}${String(t.getDate()).padStart(2,"0")}_${String(t.getHours()).padStart(2,"0")}${String(t.getMinutes()).padStart(2,"0")}${String(t.getSeconds()).padStart(2,"0")}.jpg`;
+  const file=new File([shot.blob],name,{type:"image/jpeg"});
+  if(navigator.canShare&&navigator.canShare({files:[file]})){try{await navigator.share({files:[file]});}catch(e){}}
+  else{const a=document.createElement("a");a.href=shot.url;a.download=name;document.body.append(a);a.click();a.remove();}
+}
+
+/* ---------- 화면 갱신 ---------- */
+function render(){
+  const tpl=T[st.t];
+  document.querySelectorAll(".tpl").forEach((b,i)=>b.setAttribute("aria-pressed",i===st.t?"true":"false"));
+  document.querySelectorAll("[data-ex]").forEach(b=>b.setAttribute("aria-pressed",+b.dataset.ex===st.ex?"true":"false"));
+  $("#opVal").textContent=Math.round(st.op*100)+"%";$("#ratioTxt").textContent=st.ratio;
+  $("#gridBtn").setAttribute("aria-pressed",st.grid?"true":"false");
+  $("#sheet").innerHTML=`<h3>${tpl.name} · ${tpl.title}</h3><ul>${tpl.how.map(x=>`<li>${x}</li>`).join("")}</ul><p>추천 배율 ${LENS_LABEL[tpl.lens]} · ${tpl.angle}</p>`;
+  renderZoom();drawOv();save();
+}
+function build(){
+  const strip=$("#strip");
+  T.forEach((tpl,i)=>{
+    const b=document.createElement("button");b.type="button";b.className="tpl";b.setAttribute("aria-label",tpl.name+" 구도");
+    const c=document.createElement("canvas"),W=140,H=Math.round(W*4/3),[rw,rh]=RATIOS[tpl.ratio];c.width=W;c.height=H;
+    const cc=c.getContext("2d"),iw=tpl.ratio==="16:9"?H*rw/rh:W,ox=(W-iw)/2;
+    cc.fillStyle="#111";cc.fillRect(0,0,W,H);cc.save();cc.translate(ox,0);scene(cc,iw,H,tpl,1);cc.fillStyle="rgba(0,0,0,.18)";cc.fillRect(0,0,iw,H);guides(cc,iw,H,tpl,1.3,true);cc.restore();
+    const s=document.createElement("span");s.textContent=tpl.name;b.append(c,s);
+    b.onclick=()=>{st.t=i;st.ratio=tpl.ratio;render();b.scrollIntoView({inline:"center",block:"nearest",behavior:"smooth"});};
+    strip.append(b);
+  });
+  document.querySelectorAll("[data-ex]").forEach(b=>b.onclick=()=>{st.ex=+b.dataset.ex;render();});
+  $("#opDown").onclick=()=>{st.op=Math.max(.1,Math.round((st.op-.1)*10)/10);render();};
+  $("#opUp").onclick=()=>{st.op=Math.min(1,Math.round((st.op+.1)*10)/10);render();};
+  $("#gridBtn").onclick=()=>{st.grid=!st.grid;render();};
+  $("#ratioBtn").onclick=()=>{st.ratio=st.ratio==="4:3"?"16:9":"4:3";render();};
+  $("#infoBtn").onclick=()=>{const sh=$("#sheet");sh.hidden=!sh.hidden;$("#infoBtn").setAttribute("aria-pressed",sh.hidden?"false":"true");};
+  $("#shot").onclick=capture;
+  $("#thumb").onclick=()=>shot&&openReview();
+  $("#flip").onclick=async()=>{facing=facing==="environment"?"user":"environment";curLens="1";dz=1;
+    try{await startCam(facing==="environment"&&lenses["1"]?lenses["1"]:null);}catch(e){showStart(errMsg(e));}renderZoom();};
+  $("#rvBack").onclick=()=>{$("#review").hidden=true;};
+  $("#rvGuide").onclick=()=>{rvGuide=!rvGuide;$("#rvGuide").setAttribute("aria-pressed",rvGuide?"true":"false");$("#rvGuide").textContent=rvGuide?"틀 겹쳐 보기":"틀 숨김";drawReview();};
+  $("#rvSave").onclick=saveShot;
+  $("#startBtn").onclick=boot;
+  $("#fallback").onchange=e=>{const f=e.target.files[0];if(!f)return;const im=new Image();im.onload=()=>{
+    const c=document.createElement("canvas");c.width=im.naturalWidth;c.height=im.naturalHeight;c.getContext("2d").drawImage(im,0,0);
+    c.toBlob(b=>{shot={blob:b,url:URL.createObjectURL(b),canvas:c,tpl:st.t};$("#start").hidden=true;openReview();},"image/jpeg",.92);};
+    im.src=URL.createObjectURL(f);e.target.value="";};
+  let to;window.addEventListener("resize",()=>{clearTimeout(to);to=setTimeout(()=>{drawOv();if(!$("#review").hidden)drawReview();},80);});
+  document.addEventListener("visibilitychange",()=>{
+    if(document.hidden)stopCam();
+    else if(camReady)startCam(curLens!=="1"&&curLens!=="2"?lenses[curLens]:(facing==="environment"?lenses["1"]||null:null)).catch(()=>{});
+  });
+}
+function errMsg(e){
+  const n=e&&e.name;
+  if(n==="NotAllowedError")return"카메라 권한이 꺼져 있습니다. iPhone 설정에서 Safari(또는 이 앱)의 카메라 접근을 '허용'으로 바꾼 뒤 다시 시도하세요.";
+  if(n==="NotFoundError"||n==="OverconstrainedError")return"사용할 수 있는 카메라를 찾지 못했습니다.";
+  return"카메라를 켜지 못했습니다. 다른 앱이 카메라를 쓰고 있지 않은지 확인하세요.";
+}
+function showStart(msg){$("#startMsg").textContent=msg;$("#start").hidden=false;}
+let camReady=false;
+async function boot(){
+  if(!window.isSecureContext||!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){
+    showStart("이 주소에서는 카메라를 켤 수 없습니다. https 주소로 Safari에서 열어 주세요. 대신 사진을 찍어서 구도를 확인할 수 있습니다.");
+    $("#startBtn").hidden=true;$("#fallbackLbl").hidden=false;return;}
+  try{
+    await startCam(null);await scanLenses();
+    if(lenses["1"]){const cur=stream.getVideoTracks()[0].getSettings().deviceId;if(cur!==lenses["1"])await startCam(lenses["1"]);}
+    camReady=true;$("#start").hidden=true;try{localStorage.setItem("ccCam","1");}catch(e){}
+    renderZoom();
+  }catch(e){showStart(errMsg(e));$("#fallbackLbl").hidden=false;}
+}
+
+/* 설치 안내: iPhone Safari에서 아직 홈 화면 앱이 아닐 때 */
+(function(){
+  const ios=/iphone|ipad|ipod/i.test(navigator.userAgent),standalone=navigator.standalone||matchMedia("(display-mode: standalone)").matches;
+  let closed=false;try{closed=localStorage.getItem("ccTip")==="1";}catch(e){}
+  if(ios&&!standalone&&!closed)$("#installTip").hidden=false;
+  $("#installClose").onclick=()=>{$("#installTip").hidden=true;try{localStorage.setItem("ccTip","1");}catch(e){}};
+})();
+
+build();render();
+requestAnimationFrame(()=>document.querySelectorAll(".tpl")[st.t].scrollIntoView({inline:"center",block:"nearest"}));
+try{if(localStorage.getItem("ccCam")==="1")boot();}catch(e){}
+if("serviceWorker" in navigator)navigator.serviceWorker.register("sw.js").catch(()=>{});
+</script>
+</body>
+</html>
